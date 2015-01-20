@@ -5,7 +5,7 @@ A Python client for Unity Asset Store publisher interface
 
 Ported from LostPolygon/Unity-Publisher-API-PHP
 
-Any questions/ideas? Reach me at [ejm.cloudvent.net/contact.html](http://ejm.cloudvent.net/contact.html)
+Any questions/ideas? Reach me at [ejmsoftware.com/contact/](http://ejmsoftware.com/contact/)
 
 ------
 
@@ -25,4 +25,3 @@ Not implemented:
 * Viewing/saving publisher info
 
 Licensed under Apache 2.0.
-
