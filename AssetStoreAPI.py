@@ -14,7 +14,7 @@ class AssetStoreClient(object):
     DOWNLOADS_JSON_URL = 'https://publisher.assetstore.unity3d.com/api/publisher-info/downloads/{publisher_id}/{year}{month}.json'
     INVOICE_VERIFY_JSON_URL = 'https://publisher.assetstore.unity3d.com/api/publisher-info/verify-invoice/{publisher_id}/{invoice_id}.json'
     REVENUE_JSON_URL = 'https://publisher.assetstore.unity3d.com/api/publisher-info/revenue/{publisher_id}.json'
-    PENDING_JSON_URL = 'https://publisher.assetstore.unity3d.com/api/publisher-info/pending/{publisher_id}.json'
+    PACKAGES_JSON_URL = 'https://publisher.assetstore.unity3d.com/api/management/packages.json'
     API_KEY_JSON_URL = 'https://publisher.assetstore.unity3d.com/api/publisher-info/api-key/{publisher_id}.json'
     LOGIN_TOKEN = '26c4202eb475d02864b40827dfff11a14657aa41'
     USER_AGENT = 'Mozilla/5.0 (Windows NT 6.3; rv:27.0) Gecko/20100101 Firefox/27.0'
@@ -97,15 +97,15 @@ class AssetStoreClient(object):
             infoArray.append(RevenueInfo(value))
         return infoArray
         
-    def FetchPending(self):
+    def FetchPackages(self):
         self.AssertIsLoggedIn()
-        url = self.PENDING_JSON_URL.format(publisher_id=self.GetPublisherInfo().GetId())
+        url = self.PACKAGES_JSON_URL.format(publisher_id=self.GetPublisherInfo().GetId())
         result = self.GetSimpleData({'url':url})
-        self.AssertHttpCode('Fetching pending packages failed, error code {code}', result.status_code)
+        self.AssertHttpCode('Fetching packages failed, error code {code}', result.status_code)
         infoObject = result.json()
         infoArray = []
-        for value in infoObject['data']:
-            infoArray.append(RevenueInfo(value))
+        for value in infoObject['packages']:
+            infoArray.append(PackageInfo(value))
         return infoArray
     
     def VerifyInvoice(self, invoiceNumbers):
@@ -139,8 +139,8 @@ class AssetStoreClient(object):
         key = 0
         for value in salesInfoObject['aaData']:
             temp = {i:j for i,j in enumerate(value)}
-            temp['shortLink'] = salesInfoObject['result'][key]['short_url']
-            salesInfo.append(AssetSalesInfo(temp))
+            temp['shortUrl'] = salesInfoObject['result'][key]['short_url']
+            salesInfo.append(PackageSalesInfo(temp))
             key+=1
         return PeriodSalesInfo(salesInfo, self.GetPublisherInfo().GetPayoutCut())
         
@@ -161,8 +161,8 @@ class AssetStoreClient(object):
         downloadsInfo = []
         key = 0
         for value in downloadsInfoObject['aaData']:
-            value['shortLink'] = downloadsInfoObject['result'][key]['short_url']
-            downloadsInfo.append(AssetDownloadsInfo(value))
+            value['shortUrl'] = downloadsInfoObject['result'][key]['short_url']
+            downloadsInfo.append(PackageDownloadsInfo(value))
             key += 1
         return PeriodDownloadsInfo(downloadsInfo)
         
@@ -217,6 +217,13 @@ class ParsedData (object):
             return None
         import time, datetime
         timestamp = time.mktime(datetime.datetime.strptime(date, '%Y-%m-%d').timetuple())
+        return timestamp
+        
+    def ParseDateTime(self, dateTime):
+        if dateTime=='':
+            return None
+        import time, datetime
+        timestamp = time.mktime(datetime.datetime.strptime(dateTime, '%Y-%m-%d %H:%M:%S').timetuple())
         return timestamp
         
     def ParseCurrency(self, value):
@@ -312,14 +319,14 @@ class InvoiceInfo (object):
     def __init__(self, data):
         self.data = {
             'id':data[0],
-            'assetName':data[1],
+            'packageName':data[1],
             'date':self.ParseDate(data[2]),
             'isRefunded':data[3] == 'Yes',
         }
     def GetInvoiceNumber(self):
         return self.data['id']
-    def GetAssetName(self):
-        return self.data['assetName']
+    def GetPackageName(self):
+        return self.data['packageName']
     def GetPurchaseDate(self):
         return self.data['date']
     def IsRefunded(self):
@@ -337,15 +344,15 @@ class SalesPeriod(object):
     	return time.mktime(datetime.datetime(self.year, self.month, 1, 0, 0, 0, 0).timetuple())
         
 class PeriodSalesInfo(object):
-    def __init__(self, assetSales, payoutCut = 0.7):
-        self.assetSales = assetSales
+    def __init__(self, packageSales, payoutCut = 0.7):
+        self.packageSales = packageSales
         self.payoutCut = float(payoutCut)
         self.revenueGross = 0
-        for value in self.assetSales:
+        for value in self.packageSales:
             self.revenueGross += value.GetPrice() * (value.GetQuantity() - value.GetRefunds() - value.GetChargebacks())
         self.revenueNet = self.revenueGross * self.payoutCut
-    def GetAssetSales(self):
-        return self.assetSales
+    def GetPackageSales(self):
+        return self.packageSales
     def GetRevenueGross(self):
         return self.revenueGross
     def GetRevenueNet(self):
@@ -354,12 +361,12 @@ class PeriodSalesInfo(object):
         return self.payoutCut
 
 class PeriodDownloadsInfo(object):
-    def __init__(self, assetDownloads):
-        self.assetDownloads = assetDownloads
-    def GetAssetDownloads(self):
-        return self.assetDownloads
+    def __init__(self, packageDownloads):
+        self.packageDownloads = packageDownloads
+    def GetPackageDownloads(self):
+        return self.packageDownloads
         
-class AssetSalesInfo (ParsedData):
+class PackageSalesInfo (ParsedData):
     def __init__(self, data):
         self.data = {
             'name':data[0],
@@ -370,10 +377,10 @@ class AssetSalesInfo (ParsedData):
             'gross': None if data[5]=='' else self.ParseCurrency(data[5]),
             'firstPurchase': None if data[6]=='' else self.ParseDate(data[6]),
             'lastPurchase': None if data[7] == None else self.ParseDate(data[7]),
-            'shortLink':data['shortLink'],
+            'shortUrl':data['shortUrl'],
             }
 
-    def GetAssetName(self):
+    def GetPackageName(self):
         return self.data['name']
 
     def GetPrice(self):
@@ -398,23 +405,23 @@ class AssetSalesInfo (ParsedData):
         return self.data['lastPurchase']
 
     def GetShortUrl(self):
-        return self.data['shortLink']
+        return self.data['shortUrl']
 
-    def FetchAssetId(self):
-        redirect = HttpUtilities.GetRedirectUrl(self.data['shortLink'])
+    def FetchPackageId(self):
+        redirect = HttpUtilities.GetRedirectUrl(self.data['shortUrl'])
         redirect = end(explode('/', redirect))
         return redirect
 
-class AssetDownloadsInfo(object):
+class PackageDownloadsInfo(object):
     def __init__(self, data):
         self.data = {
             'name':data[0],
             'quantity':int(data[1]) if data[1] != None else None,
             'firstDownload':self.ParseDate(data[2]) if data[2] != None else None,
             'lastDownload':self.ParseDate(data[3]) if data[3] != None else None,
-            'shortLink':data['shortLink'],
+            'shortUrl':data['shortUrl'],
         	}
-    def GetAssetName(self):
+    def GetPackageName(self):
         return self.data['name']
     def GetQuantity(self):
         return self.data['quantity']
@@ -423,52 +430,80 @@ class AssetDownloadsInfo(object):
     def GetLastDownloadDate(self):
         return self.data['lastDownload']
     def GetShortUrl(self):
-        return self.data['shortLink']
+        return self.data['shortUrl']
     def FetchAssetId(self):
-        redirect = HttpUtilities.GetRedirectUrl(self.data['shortLink'])
+        redirect = HttpUtilities.GetRedirectUrl(self.data['shortUrl'])
         redirect = end(explode('/', redirect))
         return redirect
-class PendingInfo(object):
+class PackageVersionInfo(ParsedData):
     StatusUnknown = -1
     StatusError = 1
     StatusDraft = 2
     StatusPending = 3
     StatusDeclined = 4
+    StatusPublished = 5
     def __init__(self, data):
         status = self.StatusUnknown
-        size = data[1]
-        status = data[2]
         # Parse status
-        if stripos(status, 'pending') != False:
+        if 'published' in data['status']:
+            status = self.StatusPublished
+        elif 'pending' in data['status']:
             status = self.StatusPending
-        elif stripos(status, 'declined') != False:
+        elif 'declined' in data['status']:
             status = self.StatusDeclined
-        elif stripos(status, 'draft') != False:
+        elif 'draft' in data['status']:
             status = self.StatusDraft
-        elif stripos(status, 'error') != False:
+        elif 'error' in data['status']:
             status = self.StatusError
-        # Parse size
-        sizeExplode = explode(' ', size)
-        size = float(sizeExplode[0])
-        if sizeExplode[1] == 'GB':
-            size *= 1000 * 1000
-        elif sizeExplode[1] == 'MB':
-            size *= 1000
-        size = int(size * 1000) # to bytes
         self.data = {
-            'name':data[0],
-            'packageSize':size,
+            'name':data['name'],
             'status':status,
-            'updateDate':self.ParseDate(data[3])
+            'size': int(data['size']),
+            'modifiedDate': self.ParseDateTime(data['modified']),
+            'createdDate': self.ParseDateTime(data['created']),
+            'publishedDate': self.ParseDateTime(data['published']),
+            'price': float(data['price']),
+            'version': data['version_name'],
+            'categoryId': int(data['category_id']),
+            'releaseNotes': data['publishnotes']
         	}
-    def GetAssetName(self):
+    def GetName(self):
         return self.data['name']
-    def GetPackageSize(self):
-        return self.data['packageSize']
     def GetStatus(self):
         return self.data['status']
-    def GetUpdateDate(self):
-        return self.data['updateDate']
+    def GetVersion(self):
+        return self.data['version']
+    def GetSize(self):
+        return self.data['size']
+    def GetPrice(self):
+        return self.data['price']
+    def GetCategoryId(self):
+        return self.data['categoryId']
+    def GetReleaseNotes(self):
+        return self.data['releaseNotes']
+    def GetModifiedDate(self):
+        return self.data['modifiedDate']
+    def GetCreatedDate(self):
+        return self.data['createdDate']
+    def GetPublishedDate(self):
+        return self.data['publishedDate']
+        
+class PackageInfo(ParsedData):
+    def __init__(self, data):
+        versions = []
+        for versionData in data['versions']:
+            versions.append(PackageVersionInfo(versionData))
+        self.data = {
+            'id': int(data['id']),
+            'shortUrl': data['short_url'],
+            'versions': versions
+            }
+    def GetId(self):
+        return self.data['id']
+    def GetShortUrl(self):
+        return self.data['shortUrl']
+    def GetVersions(self):
+        return self.data['versions']
 
 class HttpUtilities (object):
     errorMessages = {
