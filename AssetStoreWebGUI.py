@@ -1,13 +1,14 @@
-#AssetStoreWebGUI.py - By EJM Software
-#You will need to add your credentials to line 142
-
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 import cgi, webbrowser, AssetStoreAPI
 
 class myHandler(BaseHTTPRequestHandler):
     
-    STYLE = 'table{border-collapse:collapse;}td,th{border:1px gray solid;padding:5px;}th{background:#EEE;}'
+    STYLE = '''table{border-collapse:collapse;}td,th{border:1px gray solid;padding:5px;}th{background:#EEE;}
+    .changelog_cell{position: relative;}
+    .changelog_cell:hover .changelog_body {display: block;}
+    .changelog_body {display: none;top: 0;right: 100%;width: 500px;position: absolute;padding: 5px;background: white;border: 2px solid gray;z-index: 1000;overflow: auto;}
+    '''
     TEMPLATE = '<html><style>{style}</style><head></head><body>{body}</body></html>'
     
     def GenPubInfoHtml(self, client):
@@ -37,10 +38,9 @@ class myHandler(BaseHTTPRequestHandler):
             salesyear = salesperiods[0].GetYear()
             salesmonth = salesperiods[0].GetMonth()
         sales = client.FetchSales(salesyear, salesmonth)
-        html = '<h2>Sales</h2>'
-        html += '<h3>Gross:$%s, net: $%s (%d%%)</h3>'%(sales.GetRevenueGross(), sales.GetRevenueNet(), sales.GetPayoutCut()*100)
+        html = '<h2>Sales and Downloads</h2>'
         
-        html += '<select name=\"selectedPeriod\" onChange=\"document.forms[\'asForm\'].submit();\">'
+        html += 'Period: <select name=\"selectedPeriod\" onChange=\"document.forms[\'asForm\'].submit();\">'
         for value in salesperiods:
             html += '<option value="%s" %s>%s</option>'%(
                 str(value.GetYear())+'-'+str(value.GetMonth()),
@@ -48,11 +48,15 @@ class myHandler(BaseHTTPRequestHandler):
                 datetime.fromtimestamp(value.GetDate()).strftime('%B %Y'))
         html += '</select><br/><br/>'
         
-        html += '<table><tr><th>Paid Package</th><th>Price ($)</th><th>Qty</th><th>Refunds</th><th>Chargebacks</th><th>Gross ($)</th><th>First</th><th>Last</th></tr>'
-        for value in sales.GetAssetSales():
+        html += '<h3>Sales</h3>'
+        
+        html += '<h3>Gross:$%s, net: $%s (%d%%)</h3>'%(sales.GetRevenueGross(), sales.GetRevenueNet(), sales.GetPayoutCut()*100)
+        
+        html += '<table><tr><th>Package Name</th><th>Price ($)</th><th>Qty</th><th>Refunds</th><th>Chargebacks</th><th>Gross ($)</th><th>First</th><th>Last</th></tr>'
+        for value in sales.GetPackageSales():
             html += '<tr><td><a href="%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(
                      value.GetShortUrl(),
-                     value.GetAssetName(),
+                     value.GetPackageName(),
                      value.GetPrice(),
                      value.GetQuantity(),
                      value.GetRefunds(),
@@ -62,18 +66,21 @@ class myHandler(BaseHTTPRequestHandler):
                      None if value.GetLastPurchaseDate() == None else datetime.fromtimestamp(value.GetLastPurchaseDate()).strftime('%d %B %Y'))
         html += '</table>'
         
+        html += '<h3>Free Downloads</h3>'
         downloads = client.FetchDownloads(salesyear, salesmonth)
-        assetdownloads = downloads.GetAssetDownloads()
+        assetdownloads = downloads.GetPackageDownloads()
         if len(assetdownloads)>0:
-            html += '<br/><table><tr><th>Free Package</th><th>Qty</th><th>First</th><th>Last</th></tr>'
+            html += '<br/><table><tr><th>Package Name</th><th>Qty</th><th>First</th><th>Last</th></tr>'
             for value in assetdownloads:
                 html += '<tr><td><a href="%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td></tr>'%(
                          value.GetShortUrl(),
-                         value.GetAssetName(),
+                         value.GetPackageName(),
                          value.GetQuantity(),
                          None if value.GetFirstDownloadDate() == None else datetime.fromtimestamp(value.GetFirstDownloadDate()).strftime('%d %B %Y'),
                          None if value.GetLastDownloadDate() == None else datetime.fromtimestamp(value.GetLastDownloadDate()).strftime('%d %B %Y'))
             html += '</table>'
+        else:
+            html += 'No Free Downloads available'
         return html
     
     def GenRevenueHtml(self, client):
@@ -96,26 +103,39 @@ class myHandler(BaseHTTPRequestHandler):
         return html
         
     def GenPendingHtml(self, client):
-        pending = client.FetchPending()
-        html = '<h2>Pending</h2><table><tr><th>Package</th><th>Status</th><th>Size</th><th>Updated</th></tr>'
-        for value in pending:
-            status = value.GetStatus()
-            if status==AssetStoreClient.PendingInfo.StatusDraft:
-                infoType = 'Draft'
-            elif status==AssetStoreClient.PendingInfo.StatusPending:
-                infoType = 'Pending'
-            elif status==AssetStoreClient.PendingInfo.StatusDeclined:
-                infoType = 'Declined'
-            elif status==AssetStoreClient.PendingInfo.StatusError:
-                infoType = 'Error'
-            else:
-                infoType = 'Unknown'
-            size = value.GetPackageSize()
-            html += '<tr><td>%s</td><td>%s</td><td>%s kB</td><td>%s</td></tr>'%(
-                    value.GetAssetName(),
-                    infoType,
-                    size/1000,
-                    datetime.fromtimestamp(value.GetDate()).strftime('%d %B %Y'))
+        packages = client.FetchPackages()
+        html = '<h2>Packages</h2><table><tr><th>Package</th><th>Status</th><th>Version</th><th>Price ($)</th><th>Size</th><th>Created</th><th>Published</th><th>Modified</th><th>Id</th><th>Changelog</th></tr>'
+        for package in packages:
+            versions = package.GetVersions()
+            html += "<tr>"
+            for version in versions:
+                status = version.GetStatus()
+                if status==AssetStoreAPI.PackageVersionInfo.StatusPublished:
+                    infoType = 'Published'
+                elif status==AssetStoreAPI.PackageVersionInfo.StatusDraft:
+                    infoType = 'Draft'
+                elif status==AssetStoreAPI.PackageVersionInfo.StatusPending:
+                    infoType = 'Pending'
+                elif status==AssetStoreAPI.PackageVersionInfo.StatusDeclined:
+                    infoType = 'Declined'
+                elif status==AssetStoreAPI.PackageVersionInfo.StatusError:
+                    infoType = 'Error'
+                else:
+                    infoType = 'Unknown'
+                size = version.GetSize()
+                html += '<td><a href="%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%s kB</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"changelog_cell\"><i>Hover to see</i><div class=\"changelog_body\">%s</div></td>'%(
+                        package.GetShortUrl(),
+                        version.GetName(),
+                        infoType,
+                        version.GetVersion(),
+                        version.GetPrice(),
+                        size/1000,
+                        datetime.fromtimestamp(version.GetCreatedDate()).strftime('%d %B %Y %H:%M:%S'),
+                        datetime.fromtimestamp(version.GetPublishedDate()).strftime('%d %B %Y %H:%M:%S'),
+                        datetime.fromtimestamp(version.GetModifiedDate()).strftime('%d %B %Y %H:%M:%S'),
+                        package.GetId(),
+                        version.GetReleaseNotes())
+            html += "</hr>"
         html += '</table>'
         return html
     
@@ -130,7 +150,7 @@ class myHandler(BaseHTTPRequestHandler):
             for value in invoiceNumbersInfo:
                 html += '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(
                     value.GetInvoiceNumber(),
-                    value.GetAssetName(),
+                    value.GetPackageName(),
                     datetime.fromtimestamp(value.GetPurchaseDate()).strftime('%d %B %Y'),
                     'Yes' if value.IsRefunded() else 'No')
             html += '</table>'
@@ -139,14 +159,14 @@ class myHandler(BaseHTTPRequestHandler):
     def get_asset_store_data(self, postvars):
         #login
         store = AssetStoreAPI.AssetStoreClient()
-        store.Login('USER@EXAMPLE.COM', 'PASSWORD HERE')	
+        store.Login('publisher@example.com', 'password')	
         #Load HTML
         body = '<form action=\"#\" method=\"post\" id=\"asForm\">'
         body += self.GenPubInfoHtml(store)
         body += self.GenSalesPeriodsHtml(store)
         body += self.GenSalesHtml(store, postvars['selectedPeriod'][0] if postvars else '')
         body += self.GenRevenueHtml(store)
-        #body += self.GenPendingHtml(store)
+        body += self.GenPendingHtml(store)
         body += self.GenInvoiceHtml(store, postvars['invoiceNumbers'][0] if postvars else '')
         body += '</form>'
         html = self.TEMPLATE.format(style=self.STYLE, body=body)
