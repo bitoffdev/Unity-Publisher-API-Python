@@ -46,12 +46,10 @@ class myHandler(BaseHTTPRequestHandler):
                 str(value.GetYear())+'-'+str(value.GetMonth()),
                 'selected' if (value.GetYear()==salesyear and value.GetMonth()==salesmonth) else '',
                 datetime.fromtimestamp(value.GetDate()).strftime('%B %Y'))
-        html += '</select><br/><br/>'
+        html += '</select><br/>'
         
         html += '<h3>Sales</h3>'
-        
         html += '<h3>Gross:$%s, net: $%s (%d%%)</h3>'%(sales.GetRevenueGross(), sales.GetRevenueNet(), sales.GetPayoutCut()*100)
-        
         html += '<table><tr><th>Package Name</th><th>Price ($)</th><th>Qty</th><th>Refunds</th><th>Chargebacks</th><th>Gross ($)</th><th>First</th><th>Last</th></tr>'
         for value in sales.GetPackageSales():
             html += '<tr><td><a href="%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(
@@ -156,11 +154,26 @@ class myHandler(BaseHTTPRequestHandler):
             html += '</table>'
         return html
         
-    def get_asset_store_data(self, postvars):
-        #login
-        store = AssetStoreAPI.AssetStoreClient()
-        store.Login('publisher@example.com', 'password')	
-        #Load HTML
+    def GenerateResponse(self, postvars):
+        # Send Header (Login and manage cookie)
+        self.send_response(200)
+        self.send_header('Content-type','text/html')
+        token = ''
+        if 'cookie' in self.headers:
+            cookie = self.headers['cookie']
+            if 'token' in cookie:
+                token = cookie.split('=')[1]
+        try:
+            store = AssetStoreAPI.AssetStoreClient()
+            store.LoginWithToken(token)
+            store.GetPublisherInfo()#Check if logged in, error will be thrown if not
+        except AssetStoreAPI.AssetStoreException:
+            store = AssetStoreAPI.AssetStoreClient()
+            store.Login('email@example.com', 'password')
+        self.send_header('Set-Cookie', 'token=%s' %(store.loginToken))
+        self.end_headers()
+        
+        #Send body
         body = '<form action=\"#\" method=\"post\" id=\"asForm\">'
         body += self.GenPubInfoHtml(store)
         body += self.GenSalesPeriodsHtml(store)
@@ -170,16 +183,14 @@ class myHandler(BaseHTTPRequestHandler):
         body += self.GenInvoiceHtml(store, postvars['invoiceNumbers'][0] if postvars else '')
         body += '</form>'
         html = self.TEMPLATE.format(style=self.STYLE, body=body)
-        return html
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type','text/html')
-        self.end_headers()
-        # Send the html message
-        self.wfile.write(self.get_asset_store_data(None))
+        self.wfile.write(html)
         return
+        
+    def do_GET(self):
+        self.GenerateResponse(None)
+        return
+
     def do_POST(self):
-        #Load post submission
         ctype, pdict = cgi.parse_header(self.headers.getheader('content-type'))
         if ctype == 'multipart/form-data':
             postvars = cgi.parse_multipart(self.rfile, pdict)
@@ -188,11 +199,7 @@ class myHandler(BaseHTTPRequestHandler):
             postvars = cgi.parse_qs(self.rfile.read(length), keep_blank_values=1)
         else:
             postvars = {}
-        #Send Response
-        self.send_response(200)
-        self.send_header('Content-type','text/html')
-        self.end_headers()
-        self.wfile.write(self.get_asset_store_data(postvars))
+        self.GenerateResponse(postvars)
         return
 
 #Serve HTML
