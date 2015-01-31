@@ -1,6 +1,8 @@
 # Unity-Publisher-API-Python
 A Python client for Unity Asset Store publisher interface
 
+Requires the Requests module
+
 ------
 
 Ported from LostPolygon/Unity-Publisher-API-PHP
