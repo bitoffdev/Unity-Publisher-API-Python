@@ -1,6 +1,6 @@
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
-import cgi, webbrowser, AssetStoreAPI
+import cgi, urlparse, webbrowser, AssetStoreAPI
 
 class myHandler(BaseHTTPRequestHandler):
     
@@ -100,7 +100,7 @@ class myHandler(BaseHTTPRequestHandler):
         html += '</table>'
         return html
         
-    def GenPendingHtml(self, client):
+    def GenPackageHtml(self, client):
         packages = client.FetchPackages()
         html = '<h2>Packages</h2><table><tr><th>Package</th><th>Status</th><th>Version</th><th>Price ($)</th><th>Size</th><th>Created</th><th>Published</th><th>Modified</th><th>Id</th><th>Changelog</th></tr>'
         for package in packages:
@@ -153,6 +153,40 @@ class myHandler(BaseHTTPRequestHandler):
                     'Yes' if value.IsRefunded() else 'No')
             html += '</table>'
         return html
+    
+    def GenStatsHtml(self, client):
+        stats = {'name':[], 'quantity':[], 'gross':[]}
+        payoutCut = 0.7
+        for period in client.FetchSalesPeriods():
+            sales = client.FetchSales(period.GetYear(), period.GetMonth())
+            if not payoutCut:
+                payoutCut = sales.GetPayoutCut()
+            packageSales = sales.GetPackageSales()
+            for i in range(len(packageSales)):
+                if len(stats['quantity'])>i:
+                    stats['quantity'][i] += packageSales[i].GetQuantity()
+                    stats['gross'][i] += packageSales[i].GetGross()
+                else:
+                    stats['name'].append(packageSales[i].GetPackageName())
+                    stats['quantity'].append(packageSales[i].GetQuantity())
+                    stats['gross'].append(packageSales[i].GetGross())
+        
+        html = '<h2>Stats</h2>'
+        html += '<table><tr><th>Package Name</th><th>Total Sold</th><th>Total Gross</th><th>Total Net</th></tr>'
+        for i in range(len(stats['name'])):
+                html += '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(
+                    stats['name'][i],
+                    stats['quantity'][i],
+                    stats['gross'][i],
+                    stats['gross'][i]*payoutCut)
+        html += '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(
+            'Total',
+            sum(stats['quantity']),
+            sum(stats['gross']),
+            sum(stats['gross'])*payoutCut)
+        html += '</table>'
+        
+        return html
         
     def GenerateResponse(self, postvars):
         # Send Header (Login and manage cookie)
@@ -168,19 +202,41 @@ class myHandler(BaseHTTPRequestHandler):
             store.LoginWithToken(token)
             store.GetPublisherInfo()#Check if logged in, error will be thrown if not
         except AssetStoreAPI.AssetStoreException:
-            store = AssetStoreAPI.AssetStoreClient()
-            store.Login('email@example.com', 'password')
+            if postvars and 'user' in postvars and 'pass' in postvars:
+                store = AssetStoreAPI.AssetStoreClient()
+                store.Login(postvars['user'], postvars['pass'])
+            else:
+                self.end_headers()
+                body = '<form action=\"#\" method=\"post\" id=\"asForm\">'
+                body += '<input type=\"text\" name=\"user\">'
+                body += '<input type=\"password\" name=\"pass\">'
+                body += '<input type=\"submit\"\>'
+                body += '</form>'
+                html = self.TEMPLATE.format(style=self.STYLE, body=body)
+                self.wfile.write(html)
+                return
         self.send_header('Set-Cookie', 'token=%s' %(store.loginToken))
         self.end_headers()
         
+        #Get Query
+        page = urlparse.parse_qs(urlparse.urlparse(self.path).query).get('page', list())
+        
         #Send body
-        body = '<form action=\"#\" method=\"post\" id=\"asForm\">'
-        body += self.GenPubInfoHtml(store)
-        body += self.GenSalesPeriodsHtml(store)
-        body += self.GenSalesHtml(store, postvars['selectedPeriod'][0] if postvars else '')
-        body += self.GenRevenueHtml(store)
-        body += self.GenPendingHtml(store)
-        body += self.GenInvoiceHtml(store, postvars['invoiceNumbers'][0] if postvars else '')
+        body = "<a href='/?page=pubinfo'>Info</a> | <a href='/?page=sales'>Sales</a> | <a href='/?page=revenue'>Revenue</a> | <a href='/?page=packages'>Packages</a> | <a href='/?page=invoice'>Invoices</a> | <a href='/?page=stats'>Stats</a><br/>"
+        body += '<form action=\"#\" method=\"post\" id=\"asForm\">'
+        if 'pubinfo' in page:
+            body += self.GenPubInfoHtml(store)
+        elif 'sales' in page:
+            body += self.GenSalesPeriodsHtml(store)
+            body += self.GenSalesHtml(store, postvars['selectedPeriod'][0] if postvars else '')
+        elif 'revenue' in page:
+            body += self.GenRevenueHtml(store)
+        elif 'packages' in page:
+            body += self.GenPackageHtml(store)
+        elif 'invoice' in page:
+            body += self.GenInvoiceHtml(store, postvars['invoiceNumbers'][0] if postvars else '')
+        elif 'stats' in page:
+            body += self.GenStatsHtml(store)
         body += '</form>'
         html = self.TEMPLATE.format(style=self.STYLE, body=body)
         self.wfile.write(html)
