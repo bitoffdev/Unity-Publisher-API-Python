@@ -315,7 +315,7 @@ class RevenueInfo (ParsedData):
     def GetInfoType(self):
         return self.data['infoType']
 
-class InvoiceInfo (object):
+class InvoiceInfo (ParsedData):
     def __init__(self, data):
         self.data = {
             'id':data[0],
